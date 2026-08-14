@@ -2,13 +2,25 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import threading
 import argparse
+from urllib.parse import urlparse, parse_qs
+import time
 
 class httpServer(BaseHTTPRequestHandler):
     def do_GET(self):
-        self.send_json(200, {
-            "message": f"Hello from Node {self.server.node.node_id}",
-            "book_count": len(self.server.node.books)
-        })
+        parsed = urlparse(self.path)
+        if parsed.path != "/read":
+            self.send_json(404, {"error": "not found"})
+
+        book_id = parse_qs(parsed.query).get("book_id", [None])[0]
+        if book_id == None:
+            self.send_json(400, {"error": "book_id query param required"})
+            return
+        
+        book = self.server.node.read_book(book_id)
+        if book is None:
+            self.send_json(400, {f"error": "no book with id: {book_id}"})
+        else:
+            self.send_json(200, {"book_id": book_id, **book})
 
     def do_POST(self):
         if self.path != "/write":
@@ -50,6 +62,9 @@ class Node:
     def write_books(self, book_id, author, stock):
         self.books[book_id] = {"author": author, "stock": stock}
 
+    def read_book(self, book_id):
+        return self.books.get(book_id)
+
 
     def start(self):
         self.http = ThreadingHTTPServer(("localhost", self.port), httpServer)
@@ -60,7 +75,7 @@ class Node:
 
         try:
             while True:
-                pass
+                time.sleep(1)
         except KeyboardInterrupt:
             print(f"\n{self.node_id} Shutting down")
 

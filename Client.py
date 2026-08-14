@@ -3,6 +3,16 @@ from urllib import request, error
 
 BASE_URL = "http://localhost:8001"
 
+def read_book(book_id):
+    req = request.Request(
+        f"{BASE_URL}/read?book_id={book_id}", method="GET"
+    )
+    try:
+        with request.urlopen(req) as response:
+            return json.loads(response.read())
+    except error.HTTPError as e:
+        return json.loads(e.read())
+
 def write_book(book_id, author, stock):
     data = json.dumps({"book_id": book_id, "author": author, "stock": stock}).encode()
     req = request.Request(
@@ -15,7 +25,7 @@ def write_book(book_id, author, stock):
         return json.loads(response.read())
 
 def main():
-    print("Commands: write <book_id> <author> <stock>  |  quit")
+    print("Commands: write <book_id> <author> <stock>  |  read <book_id>  |  quit ")
     while True:
         cmd = input("> ").strip()
         if not cmd:
@@ -31,6 +41,8 @@ def main():
             author = " ".join(api_call[2:-1])
             stock = api_call[-1]
             print(write_book(book_id, author, int(stock)))
+        elif method == "read" and len(api_call) == 2:
+            print(read_book(book_id))
         else:
             print("Inccorect parsing. Example would be: b14 JRR Tolkien 4")
 
