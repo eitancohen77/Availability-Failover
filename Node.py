@@ -10,6 +10,24 @@ class httpServer(BaseHTTPRequestHandler):
             "book_count": len(self.server.node.books)
         })
 
+    def do_POST(self):
+        if self.path != "/write":
+            self.send_json(404, {"error": "not found"})
+
+        length = int(self.headers.get("Content-Length", 0))
+        try:
+            data = json.loads(self.rfile.read(length))
+            book_id, author, stock = (
+                data["book_id"],
+                data["author"],
+                data["stock"]
+            )
+        except (json.JSONDecodeError, KeyError):
+            self.send_json(400, {"error": "expected JSON body {book_id, author, stock}"})
+            return
+        self.server.node.write_books(book_id, author, stock)
+        self.send_json(200, {"status": "ok", "book_id": book_id})
+
     def send_json(self, status, data):
         body = json.dumps(data).encode()
         self.send_response(status)
@@ -28,6 +46,10 @@ class Node:
         self.port = port
         self.books = {}
         self.http = None
+
+    def write_books(self, book_id, author, stock):
+        self.books[book_id] = {"author": author, "stock": stock}
+
 
     def start(self):
         self.http = ThreadingHTTPServer(("localhost", self.port), httpServer)
