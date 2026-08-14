@@ -31,6 +31,9 @@ def read_book(book_id):
 def write_book(book_id, author, stock):
     return request_with_failover("POST", "/write", {"book_id": book_id, "author": author, "stock": stock})
 
+def read_all_books():
+    return request_with_failover("GET", f"/read_all")
+
 def main():
     print("Commands: write <book_id> <author> <stock>  |  read <book_id>  |  quit ")
     while True:
@@ -50,6 +53,8 @@ def main():
             print(write_book(book_id, author, int(stock)))
         elif method == "read" and len(api_call) == 2:
             print(read_book(book_id))
+        elif method == "read_all":
+            print(read_all_books())
         else:
             print("Inccorect parsing. Example would be: b14 JRR Tolkien 4")
 

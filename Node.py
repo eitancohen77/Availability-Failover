@@ -21,6 +21,12 @@ class httpServer(BaseHTTPRequestHandler):
             else:
                 self.send_json(200, {"book_id": book_id, **book})
 
+        elif parsed.path == '/read_all':
+            books = self.server.node.read_all_books()
+            if books is None:
+                self.send_json(400, {f"error": "no books in inventory"})
+            else:
+                self.send_json(200, {"count": len(books), "books": books})
         elif parsed.path == "/ping":
             self.send_json(200, {"node_id": self.server.node.node_id, "role": self.server.node.role})
         
@@ -75,6 +81,9 @@ class Node:
 
     def read_book(self, book_id):
         return self.books.get(book_id)
+
+    def read_all_books(self):
+        return self.books
 
     def is_primary_alive(self):
         # This attempts to ping the primary node
