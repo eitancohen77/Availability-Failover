@@ -4,23 +4,29 @@ import threading
 import argparse
 from urllib.parse import urlparse, parse_qs
 import time
+from urllib import request, error
 
 class httpServer(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
-        if parsed.path != "/read":
-            self.send_json(404, {"error": "not found"})
+        if parsed.path == "/read":
+            book_id = parse_qs(parsed.query).get("book_id", [None])[0]
+            if book_id == None:
+                self.send_json(400, {"error": "book_id query param required"})
+                return
+            
+            book = self.server.node.read_book(book_id)
+            if book is None:
+                self.send_json(400, {f"error": "no book with id: {book_id}"})
+            else:
+                self.send_json(200, {"book_id": book_id, **book})
 
-        book_id = parse_qs(parsed.query).get("book_id", [None])[0]
-        if book_id == None:
-            self.send_json(400, {"error": "book_id query param required"})
-            return
+        elif parsed.path == "/ping":
+            self.send_json(200, {"node_id": self.server.node.node_id, "role": self.server.node.role})
         
-        book = self.server.node.read_book(book_id)
-        if book is None:
-            self.send_json(400, {f"error": "no book with id: {book_id}"})
         else:
-            self.send_json(200, {"book_id": book_id, **book})
+            self.send_json(404, {"error": "not found"})
+            
 
     def do_POST(self):
         if self.path != "/write":
@@ -51,11 +57,16 @@ class httpServer(BaseHTTPRequestHandler):
 class Node:
     """
     The server instance node. Over here is where we will be calling both servers
+    role - the role that the nodes you initalize will play. Could either be active or 
+    standby. 
     """
 
-    def __init__(self, node_id, port):
+    def __init__(self, node_id, port, role, primary_port=None, check_interval=5):
         self.node_id = node_id
         self.port = port
+        self.role = role
+        self.primary_port = primary_port
+        self.check_interval = check_interval
         self.books = {}
         self.http = None
 
@@ -65,6 +76,20 @@ class Node:
     def read_book(self, book_id):
         return self.books.get(book_id)
 
+    def is_primary_alive(self):
+        # This attempts to ping the primary node
+        try:
+            request.urlopen(f"http://localhost:{self.primary_port}/ping", timeout=2)
+            return True
+        except error.URLError:
+            return False
+
+    def watch_peer(self):
+        while self.role == "standby":
+            time.sleep(self.check_interval)
+            if self.is_primary_alive() == False:
+                print(f"\n[{self.node_id}] Primary node is not responding. TAKING OVER AS ACTIVE!")
+                self.role = "active"
 
     def start(self):
         self.http = ThreadingHTTPServer(("localhost", self.port), httpServer)
@@ -72,6 +97,9 @@ class Node:
 
         threading.Thread(target=self.http.serve_forever, daemon=True).start()
         print(f"{self.node_id} Server runnning on http://localhost:{self.port}")
+
+        if self.role == "standby":
+            self.watch_peer()
 
         try:
             while True:
@@ -84,9 +112,11 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Start a single node")
     parser.add_argument("--id", required=True, help="Unique identifier for the node")
     parser.add_argument("--port", type=int, required=True, help="Port to listen on")
+    parser.add_argument("--role", choices=["active", "standby"], required=True)
+    parser.add_argument("--primary-port", type=int, help="The primary node's port (required for standby)")
     args = parser.parse_args()
 
-    node = Node(args.id, args.port)
+    node = Node(args.id, args.port, args.role, primary_port=args.primary_port)
     node.start()
 
     
