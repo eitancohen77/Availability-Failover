@@ -1,28 +1,35 @@
 import json 
 from urllib import request, error
 
-BASE_URL = "http://localhost:8001"
+URLs = ["http://localhost:8001", "http://localhost:8002"]
+
+def _request(url, method, path, data=None):
+    json_data = None
+    if data is not None:
+        json_data = json.dumps(data).encode() if data is not None else None
+
+    req = request.Request(
+        f"{url}{path}", data=json_data, method=method,
+        headers={"Content-Type": "Application/json"} if json_data else {}
+    )
+    with request.urlopen(req, timeout=3) as response:
+        return json.loads(response.read())
+
+def request_with_failover(method, path, data=None):
+    for url in URLs:
+        try:
+            result = _request(url, method, path, data)
+            print(f" (answered by {url})")
+            return result
+        except (error.URLError, TimeoutError):
+            continue
+    return {"error": "neither node responded"}
 
 def read_book(book_id):
-    req = request.Request(
-        f"{BASE_URL}/read?book_id={book_id}", method="GET"
-    )
-    try:
-        with request.urlopen(req) as response:
-            return json.loads(response.read())
-    except error.HTTPError as e:
-        return json.loads(e.read())
+    return request_with_failover("GET", f"/read?book_id={book_id}")
 
 def write_book(book_id, author, stock):
-    data = json.dumps({"book_id": book_id, "author": author, "stock": stock}).encode()
-    req = request.Request(
-        f"{BASE_URL}/write",
-        data=data,
-        method="POST",
-        headers={"Content-Type": "application/json"}
-    )
-    with request.urlopen(req) as response:
-        return json.loads(response.read())
+    return request_with_failover("POST", "/write", {"book_id": book_id, "author": author, "stock": stock})
 
 def main():
     print("Commands: write <book_id> <author> <stock>  |  read <book_id>  |  quit ")
