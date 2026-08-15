@@ -6,37 +6,37 @@ from urllib.parse import urlparse, parse_qs
 import time
 from urllib import request, error
 
+
 class httpServer(BaseHTTPRequestHandler):
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == "/read":
             book_id = parse_qs(parsed.query).get("book_id", [None])[0]
-            if book_id == None:
+            if book_id is None:
                 self.send_json(400, {"error": "book_id query param required"})
                 return
-            
-            book = self.server.node.read_book(book_id)
-            if book is None:
-                self.send_json(400, {f"error": "no book with id: {book_id}"})
-            else:
-                self.send_json(200, {"book_id": book_id, **book})
 
-        elif parsed.path == '/read_all':
-            books = self.server.node.read_all_books()
-            if books is None:
-                self.send_json(400, {f"error": "no books in inventory"})
-            else:
-                self.send_json(200, {"count": len(books), "books": books})
+            status, body = self.server.node.read_book(book_id)
+            self.send_json(status, body)
+
+        elif parsed.path == "/read_all":
+            status, body = self.server.node.read_all_books()
+            self.send_json(status, body)
+
         elif parsed.path == "/ping":
             self.send_json(200, {"node_id": self.server.node.node_id, "role": self.server.node.role})
-        
+
         else:
             self.send_json(404, {"error": "not found"})
-            
 
     def do_POST(self):
         if self.path != "/write":
             self.send_json(404, {"error": "not found"})
+            return
+
+        if self.server.node.role != "active":
+            self.send_json(403, {"error": "this node is not active, it can't accept writes"})
+            return
 
         length = int(self.headers.get("Content-Length", 0))
         try:
@@ -49,8 +49,9 @@ class httpServer(BaseHTTPRequestHandler):
         except (json.JSONDecodeError, KeyError):
             self.send_json(400, {"error": "expected JSON body {book_id, author, stock}"})
             return
-        self.server.node.write_books(book_id, author, stock)
-        self.send_json(200, {"status": "ok", "book_id": book_id})
+
+        status, body = self.server.node.write_books(book_id, author, stock)
+        self.send_json(status, body)
 
     def send_json(self, status, data):
         body = json.dumps(data).encode()
@@ -60,30 +61,57 @@ class httpServer(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+
 class Node:
     """
-    The server instance node. Over here is where we will be calling both servers
-    role - the role that the nodes you initalize will play. Could either be active or 
-    standby. 
+    The server instance node. Role is either "active" or "standby".
+    Book data lives entirely in the inventory server -- parsed_for_inventory
+    is the one place that talks to it; write_books/read_book/read_all_books
+    all just call through it and hand back the SAME shape it returned:
+    (status_code, body).
     """
 
-    def __init__(self, node_id, port, role, primary_port=None, check_interval=5):
+    def __init__(self, node_id, port, role, inventory_port, primary_port=None, check_interval=5):
         self.node_id = node_id
         self.port = port
         self.role = role
         self.primary_port = primary_port
         self.check_interval = check_interval
-        self.books = {}
+        self.inventory_port = inventory_port
         self.http = None
 
+    def parsed_for_inventory(self, method, path, data=None):
+        json_data = None
+        if data is not None:
+            json_data = json.dumps(data).encode()
+        req = request.Request(
+            f"http://localhost:{self.inventory_port}{path}",
+            data=json_data, method=method,
+            headers={"Content-Type": "application/json"} if data else {}
+        )
+
+        try:
+            with request.urlopen(req) as response:
+                return response.status, json.loads(response.read())
+        except error.HTTPError as e:
+            return e.code, json.loads(e.read())
+
     def write_books(self, book_id, author, stock):
-        self.books[book_id] = {"author": author, "stock": stock}
+        result = self.parsed_for_inventory(
+            "POST", "/write", {"book_id": book_id, "author": author, "stock": stock}
+        )
+        print(f"RESULTS FROM WRITE_BOOK{result}")
+        return result
 
     def read_book(self, book_id):
-        return self.books.get(book_id)
+        result = self.parsed_for_inventory("GET", f"/read?book_id={book_id}")
+        print(f"RESULTS FROM READ_BOOK{result}")
+        return result
 
     def read_all_books(self):
-        return self.books
+        status, result = self.parsed_for_inventory("GET", "/read_all")
+        print(f"RESULTS FROM READ_ALL_BOOK{result}")
+        return status, result  # return BOTH -- do_GET needs the status too
 
     def is_primary_alive(self):
         # This attempts to ping the primary node
@@ -123,9 +151,8 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, required=True, help="Port to listen on")
     parser.add_argument("--role", choices=["active", "standby"], required=True)
     parser.add_argument("--primary-port", type=int, help="The primary node's port (required for standby)")
+    parser.add_argument("--inventory-port", type=int, help="Port of the database both servers share", required=True)
     args = parser.parse_args()
 
-    node = Node(args.id, args.port, args.role, primary_port=args.primary_port)
+    node = Node(args.id, args.port, args.role, inventory_port=args.inventory_port, primary_port=args.primary_port)
     node.start()
-
-    

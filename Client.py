@@ -52,7 +52,7 @@ def main():
             stock = api_call[-1]
             print(write_book(book_id, author, int(stock)))
         elif method == "read" and len(api_call) == 2:
-            print(read_book(book_id))
+            print(read_book(api_call[1]))
         elif method == "read_all":
             print(read_all_books())
         else:
