@@ -89,7 +89,7 @@ class Node:
     check_interval is how often does the heartbeat ping does the standby server
     send to the  active one.
     """
-    def __init__(self, node_id, port, role, inventory_port, primary_port=None, check_interval=10):
+    def __init__(self, node_id, port, role, inventory_port, primary_port=None, check_interval=5):
         self.node_id = node_id
         self.port = port
         self.role = role
@@ -140,12 +140,27 @@ class Node:
         except error.URLError:
             return False
 
-    def watch_peer(self):
-        while self.role == "standby":
+    def manage_role(self):
+        """
+        Runs for the entire lifetime of the process, checking every
+        check_interval seconds whether THIS node should change role:
+ 
+        - if standby and the primary has gone quiet -> promote to active
+        - if active (and this node has a primary_port, i.e. it isn't
+          the true primary itself) and the primary has come back ->
+          step back down to standby
+        """
+        while True:
             time.sleep(self.check_interval)
-            if self.is_primary_alive() == False:
-                print(f"\n[{self.node_id}] Primary node is not responding. TAKING OVER AS ACTIVE!")
-                self.role = "active"
+            if self.role == "standby":
+                if self.is_primary_alive() == False:
+                    print(f"\n[{self.node_id}] Primary node is not responding. TAKING OVER AS ACTIVE!")
+                    self.role = "active"
+            elif self.role == "active" and self.primary_port is not None:
+                if self.is_primary_alive() == True:
+                    print(f"\n[{self.node_id}] Primary node is back up and repsonding. STEPING DOWN FROM ACTIVE!")
+                    self.role = "standby"
+
 
     def start(self):
         self.http = ThreadingHTTPServer(("localhost", self.port), httpServer)
@@ -154,8 +169,7 @@ class Node:
         threading.Thread(target=self.http.serve_forever, daemon=True).start()
         print(f"{self.node_id} Server runnning on http://localhost:{self.port}")
 
-        if self.role == "standby":
-            self.watch_peer()
+        threading.Thread(target=self.manage_role, daemon=True).start()
 
         try:
             while True:
