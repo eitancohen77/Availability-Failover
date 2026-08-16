@@ -87,7 +87,9 @@ class Node:
 
     """
     check_interval is how often does the heartbeat ping does the standby server
-    send to the  active one.
+    send to the  active one. Depending on how often you want a heartbeat from 
+    the server, here i did 5 for demonstration purposes, but usually in real 
+    systems it anywhere between 30-60 seconds.
     """
     def __init__(self, node_id, port, role, inventory_port, primary_port=None, check_interval=5):
         self.node_id = node_id
