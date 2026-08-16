@@ -4,6 +4,11 @@ from urllib import request, error
 URLs = ["http://localhost:8001", "http://localhost:8002"]
 
 def _request(url, method, path, data=None):
+    """
+    Checks to see if servers work. The way it does this is by a simple
+    request, and sees what the response is. If sever does not work then 
+    it responds with 
+    """
     json_data = None
     if data is not None:
         json_data = json.dumps(data).encode() if data is not None else None
@@ -16,6 +21,11 @@ def _request(url, method, path, data=None):
         return json.loads(response.read())
 
 def request_with_failover(method, path, data=None):
+    """
+    This function helps the client choose a server. If server 1 fails, then it
+    tries server 2. If server 2 does not work then either its waiting for standby
+    or neither server 1 or 2 work.
+    """
     for url in URLs:
         try:
             result = _request(url, method, path, data)
@@ -23,7 +33,7 @@ def request_with_failover(method, path, data=None):
             return result
         except (error.URLError, TimeoutError):
             continue
-    return {"error": "neither node responded"}
+    return {"error": "Server is currently not responding"}
 
 def read_book(book_id):
     return request_with_failover("GET", f"/read?book_id={book_id}")

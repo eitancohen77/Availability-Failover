@@ -8,50 +8,64 @@ from urllib import request, error
 
 
 class httpServer(BaseHTTPRequestHandler):
+    """
+    This module class is the server class which will be build on the Node class
+    we created. It gives the node class a server where it can accept and dish out
+    http requests. 
+    """
     def do_GET(self):
-        parsed = urlparse(self.path)
-        if parsed.path == "/read":
-            book_id = parse_qs(parsed.query).get("book_id", [None])[0]
-            if book_id is None:
-                self.send_json(400, {"error": "book_id query param required"})
-                return
+        if self.server.node.role == "active": # Checks to see if the node is active
+            parsed = urlparse(self.path)
+            if parsed.path == "/read":
+                book_id = parse_qs(parsed.query).get("book_id", [None])[0]
+                if book_id is None:
+                    self.send_json(400, {"error": "book_id query param required"})
+                    return
 
-            status, body = self.server.node.read_book(book_id)
-            self.send_json(status, body)
+                status, body = self.server.node.read_book(book_id)
+                self.send_json(status, body)
 
-        elif parsed.path == "/read_all":
-            status, body = self.server.node.read_all_books()
-            self.send_json(status, body)
+            elif parsed.path == "/read_all":
+                status, body = self.server.node.read_all_books()
+                self.send_json(status, body)
 
-        elif parsed.path == "/ping":
-            self.send_json(200, {"node_id": self.server.node.node_id, "role": self.server.node.role})
+            elif parsed.path == "/ping":
+                self.send_json(200, {"node_id": self.server.node.node_id, "role": self.server.node.role})
 
+            else:
+                self.send_json(404, {"error": "not found"})
         else:
-            self.send_json(404, {"error": "not found"})
+            # If node is not active, then we send a error message to client saying its accesing 
+            # an unaccesable server.
+            self.send_json(503, {f"error": "[Server {self.server.node.node_id}] is on standby"})
 
     def do_POST(self):
-        if self.path != "/write":
-            self.send_json(404, {"error": "not found"})
-            return
+        if self.server.node.role == "active":
 
-        if self.server.node.role != "active":
-            self.send_json(403, {"error": "this node is not active, it can't accept writes"})
-            return
+            if self.path != "/write":
+                self.send_json(404, {"error": "not found"})
+                return
 
-        length = int(self.headers.get("Content-Length", 0))
-        try:
-            data = json.loads(self.rfile.read(length))
-            book_id, author, stock = (
-                data["book_id"],
-                data["author"],
-                data["stock"]
-            )
-        except (json.JSONDecodeError, KeyError):
-            self.send_json(400, {"error": "expected JSON body {book_id, author, stock}"})
-            return
+            if self.server.node.role != "active":
+                self.send_json(403, {"error": "this node is not active, it can't accept writes"})
+                return
 
-        status, body = self.server.node.write_books(book_id, author, stock)
-        self.send_json(status, body)
+            length = int(self.headers.get("Content-Length", 0))
+            try:
+                data = json.loads(self.rfile.read(length))
+                book_id, author, stock = (
+                    data["book_id"],
+                    data["author"],
+                    data["stock"]
+                )
+            except (json.JSONDecodeError, KeyError):
+                self.send_json(400, {"error": "expected JSON body {book_id, author, stock}"})
+                return
+
+            status, body = self.server.node.write_books(book_id, author, stock)
+            self.send_json(status, body)
+        else:
+            self.send_json(503, {f"error": "[Server {self.server.node.node_id}] is on standby"})
 
     def send_json(self, status, data):
         body = json.dumps(data).encode()
@@ -71,7 +85,7 @@ class Node:
     (status_code, body).
     """
 
-    def __init__(self, node_id, port, role, inventory_port, primary_port=None, check_interval=5):
+    def __init__(self, node_id, port, role, inventory_port, primary_port=None, check_interval=30):
         self.node_id = node_id
         self.port = port
         self.role = role
@@ -81,6 +95,10 @@ class Node:
         self.http = None
 
     def parsed_for_inventory(self, method, path, data=None):
+        """
+        helper function that formats the data in the correct way so 
+        it can be sent out to the BookInventory database
+        """
         json_data = None
         if data is not None:
             json_data = json.dumps(data).encode()
@@ -100,17 +118,14 @@ class Node:
         result = self.parsed_for_inventory(
             "POST", "/write", {"book_id": book_id, "author": author, "stock": stock}
         )
-        print(f"RESULTS FROM WRITE_BOOK{result}")
         return result
 
     def read_book(self, book_id):
         result = self.parsed_for_inventory("GET", f"/read?book_id={book_id}")
-        print(f"RESULTS FROM READ_BOOK{result}")
         return result
 
     def read_all_books(self):
         status, result = self.parsed_for_inventory("GET", "/read_all")
-        print(f"RESULTS FROM READ_ALL_BOOK{result}")
         return status, result  # return BOTH -- do_GET needs the status too
 
     def is_primary_alive(self):

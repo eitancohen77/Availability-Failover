@@ -4,6 +4,11 @@ import json
 import argparse
 
 class _Handler(BaseHTTPRequestHandler):
+    """
+    Instead of installing a database, I created a server that just stores
+    book information. This is to keep the data more local in the project
+    rather than outside.
+    """
     def do_GET(self):
         parsed = urlparse(self.path)
         if parsed.path == "/read":
