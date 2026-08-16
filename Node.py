@@ -85,7 +85,11 @@ class Node:
     (status_code, body).
     """
 
-    def __init__(self, node_id, port, role, inventory_port, primary_port=None, check_interval=30):
+    """
+    check_interval is how often does the heartbeat ping does the standby server
+    send to the  active one.
+    """
+    def __init__(self, node_id, port, role, inventory_port, primary_port=None, check_interval=10):
         self.node_id = node_id
         self.port = port
         self.role = role
