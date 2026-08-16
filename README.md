@@ -13,8 +13,8 @@ standard library (no frameworks, no installed database).
 - **`Node.py`** — the `Node` server. Two of these run at once: one
   `active`, one `standby`. Neither stores book data itself — every
   read/write is forwarded to `BookInventory.py`. The standby also
-  watches the active via `/ping`; if the active stops answering, the
-  standby promotes itself.
+  watches the active via `/ping` and the `manage_role` function. If the active stops answering, the secondary server takes its place and if the primary is back up and runing, the secondary steps down
+  standby promotes itself, and if 
 - **`Client.py`** — a terminal client. It tries the primary node's
   address first and falls back to the secondary if the primary doesn't
   answer, so it keeps working across a failover. Its not the client's job to know which server works or not. 
